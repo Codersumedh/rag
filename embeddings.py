@@ -26,43 +26,129 @@ def load_schema_chunks():
         data = yaml.safe_load(f)
 
     chunks = []
-    for table in data.get("tables", []):
-        name = table["name"]
-        db = table.get("database", "")
-        schema = table.get("schema", "")
-        fqn = ".".join(p for p in (db, schema, name) if p)
-        table_desc = (table.get("description") or "").strip()
 
-        # One chunk describing the whole table.
-        chunks.append(
-            {
-                "id": f"table::{name}",
-                "text": f"Table {fqn}: {table_desc}",
-                "metadata": {"type": "table", "table": name, "fqn": fqn},
-            }
-        )
+    # Format 1: flat table list (tables -> columns)
+    if (
+        data.get("tables")
+        and isinstance(data.get("tables"), list)
+        and any(isinstance(t, dict) and t.get("columns") for t in data.get("tables", []))
+    ):
+        for table in data.get("tables", []):
+            name = table.get("name") or table.get("table")
+            if not name:
+                continue
+            db = table.get("database", "")
+            schema = table.get("schema", "")
+            fqn = ".".join(p for p in (db, schema, name) if p)
+            table_desc = (table.get("description") or "").strip()
 
-        # One chunk per column so similarity search can find relevant fields.
-        for col in table.get("columns", []):
-            col_name = col["name"]
-            col_type = col.get("type", "")
-            col_desc = (col.get("description") or "").strip()
-            text = (
-                f"Table {fqn} column {col_name} ({col_type}): {col_desc}"
-            )
             chunks.append(
                 {
-                    "id": f"col::{name}::{col_name}",
-                    "text": text,
-                    "metadata": {
-                        "type": "column",
-                        "table": name,
-                        "fqn": fqn,
-                        "column": col_name,
-                        "data_type": col_type,
-                    },
+                    "id": f"table::{name}",
+                    "text": f"Table {fqn}: {table_desc}",
+                    "metadata": {"type": "table", "table": name, "fqn": fqn},
                 }
             )
+
+            for col in table.get("columns", []):
+                col_name = col.get("name")
+                if not col_name:
+                    continue
+                col_type = col.get("type", "")
+                col_desc = (col.get("description") or "").strip()
+                text = f"Table {fqn} column {col_name} ({col_type}): {col_desc}"
+                chunks.append(
+                    {
+                        "id": f"col::{name}::{col_name}",
+                        "text": text,
+                        "metadata": {
+                            "type": "column",
+                            "table": name,
+                            "fqn": fqn,
+                            "column": col_name,
+                            "data_type": col_type,
+                        },
+                    }
+                )
+
+    # Format 2: semantic model style (dimensions/measures and tables with table key)
+    model_name = data.get("name", "")
+    model_desc = (data.get("description") or "").strip()
+    table_entries = data.get("tables", []) if isinstance(data.get("tables"), list) else []
+    dimensions = data.get("dimensions", []) if isinstance(data.get("dimensions"), list) else []
+    measures = data.get("measures", []) if isinstance(data.get("measures"), list) else []
+
+    if table_entries and (dimensions or measures):
+        for t in table_entries:
+            table_name = t.get("table") or t.get("name")
+            if not table_name:
+                continue
+            db = t.get("database", "")
+            schema = t.get("schema", "")
+            fqn = ".".join(p for p in (db, schema, table_name) if p)
+            t_desc = (t.get("description") or "").strip()
+            full_desc = " ".join(p for p in (model_desc, t_desc) if p).strip()
+            chunks.append(
+                {
+                    "id": f"table::{table_name}",
+                    "text": f"Semantic model {model_name}. Table {fqn}: {full_desc}",
+                    "metadata": {"type": "table", "table": table_name, "fqn": fqn},
+                }
+            )
+
+            for d in dimensions:
+                d_name = d.get("name")
+                if not d_name:
+                    continue
+                d_type = d.get("data_type", "")
+                d_desc = (d.get("description") or "").strip()
+                d_expr = (d.get("expr") or "").strip()
+                synonyms = ", ".join(d.get("synonyms", [])) if isinstance(d.get("synonyms"), list) else ""
+                text = (
+                    f"Table {fqn} dimension {d_name} ({d_type}). "
+                    f"description: {d_desc}. expr: {d_expr}. synonyms: {synonyms}"
+                )
+                chunks.append(
+                    {
+                        "id": f"dim::{table_name}::{d_name}",
+                        "text": text,
+                        "metadata": {
+                            "type": "dimension",
+                            "table": table_name,
+                            "fqn": fqn,
+                            "column": d_expr or d_name,
+                            "semantic_name": d_name,
+                            "data_type": d_type,
+                        },
+                    }
+                )
+
+            for m in measures:
+                m_name = m.get("name")
+                if not m_name:
+                    continue
+                m_type = m.get("data_type", "")
+                m_desc = (m.get("description") or "").strip()
+                m_expr = (m.get("expr") or "").strip()
+                synonyms = ", ".join(m.get("synonyms", [])) if isinstance(m.get("synonyms"), list) else ""
+                text = (
+                    f"Table {fqn} measure {m_name} ({m_type}). "
+                    f"description: {m_desc}. expr: {m_expr}. synonyms: {synonyms}"
+                )
+                chunks.append(
+                    {
+                        "id": f"measure::{table_name}::{m_name}",
+                        "text": text,
+                        "metadata": {
+                            "type": "measure",
+                            "table": table_name,
+                            "fqn": fqn,
+                            "column": m_expr or m_name,
+                            "semantic_name": m_name,
+                            "data_type": m_type,
+                        },
+                    }
+                )
     return chunks
 
 
