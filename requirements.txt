@@ -1,6 +1,7 @@
 # RAG vector store
 chromadb==0.5.5
 pyyaml==6.0.2
+pydantic>=2.0,<3
 
 # Azure / UHG gateway (set USE_AZURE=true in UAIS_vars.env)
 openai>=1.40.0

@@ -1,0 +1,41 @@
+name: uhc_mthly_medical_report
+
+description: "Semantic model for UHC Medical Oncology(MedOnc) Monthly Report - covers authorizations, treatments, ..."
+
+tables:
+  - name: med_uhc_mthly
+    description: "Monthly medical oncology UHC authorization, treatment regimen, and clinical review data"
+
+    base_table:
+      database: OHBI_PRD_MART_DB
+      schema: CORE_ONC
+      table: MART_MED_UHC_MTHLY_RPT
+
+    dimensions:
+
+      - name: primary_cancer_desc
+        synonyms:
+          - "primary cancer"
+          - "cancer type"
+          - "cancer diagnosis"
+          - "primary diagnosis"
+        description: "Primary cancer type description"
+        expr: PRIMARY_CANCER_DESC
+        data_type: VARCHAR
+
+      - name: other_cancer_desc
+        synonyms:
+          - "other cancer"
+          - "secondary cancer"
+        description: "Other/secondary cancer type description"
+        expr: OTHER_CANCER_DESC
+        data_type: VARCHAR
+
+      - name: service_diagnosis_code
+        synonyms:
+          - "diagnosis code"
+          - "ICD code"
+          - "dx code"
+        description: "Service diagnosis code (ICD)"
+        expr: SERVICE_DIAGNOSIS_CODE
+        data_type: VARCHAR

@@ -1,0 +1,6 @@
+Data/UAIS_vars.env
+Data/databricks.env
+.env
+chroma_store/
+setup/tiktoken_cache/*
+!setup/tiktoken_cache/.gitkeep

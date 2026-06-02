@@ -23,8 +23,10 @@ Set `USE_AZURE=true` in `UAIS_vars.env` to match your Databricks notebook.
 ## Project files
 
 - `schema.yaml` → your table metadata
-- `embeddings.py` → build vector store from YAML
-- `rag.py` → retrieve top-k relevant schema chunks
+- `embeddings.py` → build vector store from YAML (`build_vectordb` when Azure)
+- **`yaml_rag/`** → notebook-parity folder: Chroma + `semantic_retrieval()` + `retrieve.py`
+- `retrieve.py` (in `yaml_rag/`) → English question → similar YAML chunks only
+- `rag.py` → `semantic_retrieval` / `retrieve_schema_context` for SQL pipeline
 - `llm.py` → local text-to-SQL and explanation
 - `connection.py` → Snowflake connection + query execution
 - `main.py` → full end-to-end flow
