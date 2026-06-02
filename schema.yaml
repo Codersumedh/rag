@@ -1,0 +1,42 @@
+# Replace this with your real table definition.
+# Structure: a list of tables, each with columns.
+# The embeddings.py script turns every table + column into a searchable chunk.
+
+tables:
+  - name: MART_MED_UHC_MTHLY_RPT
+    database: OHBI_PRD_MART_DB
+    schema: CORE_ONC
+    description: >
+      Monthly UnitedHealthcare (UHC) medical claims reporting mart.
+      One row per member per claim per month.
+    columns:
+      - name: MEMBER_ID
+        type: VARCHAR
+        description: Unique identifier for the member / patient.
+      - name: CLAIM_ID
+        type: VARCHAR
+        description: Unique identifier for a medical claim.
+      - name: REPORT_MONTH
+        type: DATE
+        description: The month the report row belongs to (first day of month).
+      - name: PROVIDER_NAME
+        type: VARCHAR
+        description: Name of the healthcare provider or facility.
+      - name: DIAGNOSIS_CODE
+        type: VARCHAR
+        description: ICD diagnosis code associated with the claim.
+      - name: CLAIM_AMOUNT
+        type: NUMBER
+        description: Total billed amount for the claim in USD.
+      - name: PAID_AMOUNT
+        type: NUMBER
+        description: Amount actually paid by the plan in USD.
+      - name: CLAIM_STATUS
+        type: VARCHAR
+        description: Status of the claim, e.g. PAID, DENIED, PENDING.
+      - name: PLAN_TYPE
+        type: VARCHAR
+        description: Insurance plan type, e.g. HMO, PPO, EPO.
+      - name: STATE
+        type: VARCHAR
+        description: US state code where the member resides.
