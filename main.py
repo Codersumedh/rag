@@ -1,17 +1,20 @@
 """End-to-end pipeline:
-1) embed user query
-2) retrieve relevant schema chunks from ChromaDB
-3) generate SQL with local HF model
+1) embed user query (Azure or local)
+2) retrieve relevant schema chunks from ChromaDB (cosine)
+3) generate SQL (Azure chat or local HF)
 4) execute SQL in Snowflake
-5) explain result with local HF model
+5) explain result (Azure chat or local HF)
 """
 
+from config import USE_AZURE
 from connection import run_query
 from llm import explain_result, generate_sql
 from rag import retrieve_schema_context
 
 
 def ask(question: str):
+    backend = "Azure (UHG gateway)" if USE_AZURE else "Local Hugging Face"
+    print(f"\nBackend: {backend}")
     print("\n=== User Question ===")
     print(question)
 

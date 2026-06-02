@@ -1,51 +1,50 @@
-"""Local Hugging Face LLM utilities for SQL generation and explanation."""
+"""LLM facade: Azure chat (default when USE_AZURE=true) or local Hugging Face."""
 
-import re
-from typing import Any
+from config import USE_AZURE
 
-import pandas as pd
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+if USE_AZURE:
+    from azure_llm import explain_result, generate_sql
+else:
+    import re
 
-from config import LLM_MODEL
+    import pandas as pd
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
+    from config import LLM_MODEL
 
-_GEN = None
+    _GEN = None
 
+    def get_generator():
+        global _GEN
+        if _GEN is None:
+            tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL)
+            model = AutoModelForCausalLM.from_pretrained(
+                LLM_MODEL,
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True,
+            )
+            _GEN = pipeline(
+                "text-generation",
+                model=model,
+                tokenizer=tokenizer,
+                max_new_tokens=280,
+                do_sample=False,
+            )
+        return _GEN
 
-def get_generator():
-    global _GEN
-    if _GEN is None:
-        tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL)
-        model = AutoModelForCausalLM.from_pretrained(
-            LLM_MODEL,
-            torch_dtype=torch.float32,
-            low_cpu_mem_usage=True,
-        )
-        _GEN = pipeline(
-            "text-generation",
-            model=model,
-            tokenizer=tokenizer,
-            max_new_tokens=280,
-            do_sample=False,
-        )
-    return _GEN
+    def _extract_sql(text: str) -> str:
+        block = re.search(r"```sql\s*(.*?)```", text, flags=re.I | re.S)
+        if block:
+            return block.group(1).strip()
+        semicolon = text.find(";")
+        if semicolon != -1:
+            return text[: semicolon + 1].strip()
+        return text.strip()
 
-
-def _extract_sql(text: str) -> str:
-    block = re.search(r"```sql\s*(.*?)```", text, flags=re.I | re.S)
-    if block:
-        return block.group(1).strip()
-    semicolon = text.find(";")
-    if semicolon != -1:
-        return text[: semicolon + 1].strip()
-    return text.strip()
-
-
-def generate_sql(user_question: str, retrieved_schema_context: str) -> str:
-    generator = get_generator()
-    prompt = f"""
-You are an expert Snowflake SQL assistant.
+    def generate_sql(user_question: str, retrieved_schema_context: str) -> str:
+        generator = get_generator()
+        prompt = f"""You are an expert Snowflake SQL assistant.
 Given schema context and user question, return ONLY ONE executable SELECT SQL query.
 Rules:
 - Use only tables/columns from context.
@@ -59,21 +58,17 @@ Schema context:
 User question:
 {user_question}
 """
-    out = generator(prompt)[0]["generated_text"]
-    return _extract_sql(out)
+        out = generator(prompt)[0]["generated_text"]
+        return _extract_sql(out)
 
-
-def _df_preview(df: pd.DataFrame, max_rows: int = 20) -> str:
-    if df.empty:
-        return "Result is empty."
-    return df.head(max_rows).to_markdown(index=False)
-
-
-def explain_result(user_question: str, sql: str, result_df: pd.DataFrame) -> str:
-    generator = get_generator()
-    preview = _df_preview(result_df)
-    prompt = f"""
-You are a data analyst.
+    def explain_result(user_question: str, sql: str, result_df: pd.DataFrame) -> str:
+        generator = get_generator()
+        preview = (
+            "Result is empty."
+            if result_df.empty
+            else result_df.head(20).to_markdown(index=False)
+        )
+        prompt = f"""You are a data analyst.
 Explain query output in plain English for a business user.
 Be concise, factual, and mention if output is empty.
 
@@ -86,7 +81,5 @@ SQL used:
 Result preview:
 {preview}
 """
-    out = generator(prompt)[0]["generated_text"]
-    cleaned = out.replace(prompt, "").strip()
-    return cleaned or "No explanation generated."
-
+        out = generator(prompt)[0]["generated_text"]
+        return out.replace(prompt, "").strip() or "No explanation generated."

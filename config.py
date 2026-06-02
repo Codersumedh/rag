@@ -1,54 +1,52 @@
-"""Central configuration for the RAG -> SQL -> Snowflake pipeline.
+"""Central configuration for the RAG -> SQL -> Snowflake pipeline."""
 
-Everything is kept simple here so you only edit one file.
-"""
-
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).parent
+
+# Load UAIS_vars.env first (same as your notebook: load_dotenv("./Data/UAIS_vars.env"))
+ENV_FILE = Path(os.getenv("UAIS_ENV_FILE", str(BASE_DIR / "UAIS_vars.env")))
+load_dotenv(ENV_FILE)
+load_dotenv(BASE_DIR / ".env")
+
+# ---------------------------------------------------------------------------
+# Backend: Azure (UHG gateway) vs local Hugging Face
+# ---------------------------------------------------------------------------
+USE_AZURE = os.getenv("USE_AZURE", "false").strip().lower() in ("1", "true", "yes")
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-BASE_DIR = Path(__file__).parent
-SCHEMA_YAML_PATH = BASE_DIR / "schema.yaml"      # your table definition
-CHROMA_DB_DIR = BASE_DIR / "chroma_store"        # where embeddings are persisted
+SCHEMA_YAML_PATH = BASE_DIR / "schema.yaml"
+CHROMA_DB_DIR = BASE_DIR / "chroma_store"
 CHROMA_COLLECTION = "table_schema"
-
-# ---------------------------------------------------------------------------
-# Models (all free, run locally, no API keys)
-# ---------------------------------------------------------------------------
-# Fast + small sentence transformer for embeddings (Hub id).
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
-# If Hugging Face download fails (corporate SSL), download the model once on a
-# machine with access, copy the folder here, and set this path.
-# Example folder layout: models/all-MiniLM-L6-v2/config.json, pytorch_model.bin, ...
-LOCAL_EMBED_MODEL_PATH = BASE_DIR / "models" / "all-MiniLM-L6-v2"
-
-# Corporate SSL: point to your company root CA .pem file (optional).
-# Example: r"C:\certs\company-root-ca.pem"
-SSL_CERT_FILE = ""
-
-# Set True only after the model files exist locally (skips Hub download).
-HF_HUB_OFFLINE = False
-
-# Local Hugging Face instruct model used to (1) write SQL and (2) explain results.
-# Qwen2.5-Coder-1.5B is small enough to run on CPU and is good at SQL.
-# You can swap this for any other instruct model from the Hub.
-LLM_MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-
-# How many schema chunks to retrieve from ChromaDB for each query.
 TOP_K = 8
 
+# Disable Chroma telemetry (UHG policy — same as your notebook)
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
 # ---------------------------------------------------------------------------
-# Snowflake connection (matches the connect method you shared)
+# Local models (used when USE_AZURE=false)
+# ---------------------------------------------------------------------------
+EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+LOCAL_EMBED_MODEL_PATH = BASE_DIR / "models" / "all-MiniLM-L6-v2"
+SSL_CERT_FILE = os.getenv("SSL_CERT_FILE", "")
+HF_HUB_OFFLINE = os.getenv("HF_HUB_OFFLINE", "false").strip().lower() in ("1", "true", "yes")
+LLM_MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+
+# ---------------------------------------------------------------------------
+# Snowflake connection
 # ---------------------------------------------------------------------------
 SNOWFLAKE_CONN = {
-    "host": "abc111.east-us-2.azure.snowflakecomputing.com",
-    "user": "xyz@abc.com",
-    "account": "DWAAS",
-    "role": "AR_PRD_ABC_ROLE",
-    "warehouse": "OHBI_PRD_CONSUME_FREQ_WH",
-    "database": "OHBI_PRD_MART_DB",
-    "schema": "CORE_ONC",
-    "authenticator": "externalbrowser",
+    "host": os.getenv("SNOWFLAKE_HOST", "abc111.east-us-2.azure.snowflakecomputing.com"),
+    "user": os.getenv("SNOWFLAKE_USER", "xyz@abc.com"),
+    "account": os.getenv("SNOWFLAKE_ACCOUNT", "DWAAS"),
+    "role": os.getenv("SNOWFLAKE_ROLE", "AR_PRD_ABC_ROLE"),
+    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE", "OHBI_PRD_CONSUME_FREQ_WH"),
+    "database": os.getenv("SNOWFLAKE_DATABASE", "OHBI_PRD_MART_DB"),
+    "schema": os.getenv("SNOWFLAKE_SCHEMA", "CORE_ONC"),
+    "authenticator": os.getenv("SNOWFLAKE_AUTHENTICATOR", "externalbrowser"),
 }

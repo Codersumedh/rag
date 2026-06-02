@@ -1,17 +1,22 @@
-# Snowflake RAG Text-to-SQL (Local + Free Models)
+# Snowflake RAG Text-to-SQL
 
-This project does exactly what you asked:
+Pipeline:
 
-1. Read your table schema from a YAML file.
-2. Create embeddings for schema chunks with a fast sentence-transformer.
-3. Store/retrieve embeddings using ChromaDB.
-4. Take a natural-English user question.
-5. Run similarity search (RAG) to fetch relevant schema context.
-6. Use a local Hugging Face model to generate SQL.
-7. Execute SQL in Snowflake using your connection method.
-8. Ask the same local model to explain the result in plain English.
+1. Read table schema from `schema.yaml`
+2. Embed schema chunks → ChromaDB (cosine similarity)
+3. RAG: retrieve relevant schema for the user question
+4. LLM generates SQL
+5. Run SQL in Snowflake
+6. LLM explains results
 
-No paid API keys are needed.
+**Two backends:**
+
+| Mode | Embeddings | LLM |
+|------|------------|-----|
+| **Azure (recommended at UHG)** | Azure OpenAI via gateway | Azure chat (`get_response`) |
+| **Local** | sentence-transformers | Hugging Face (no API) |
+
+Set `USE_AZURE=true` in `UAIS_vars.env` to match your Databricks notebook.
 
 ---
 
@@ -24,6 +29,39 @@ No paid API keys are needed.
 - `connection.py` → Snowflake connection + query execution
 - `main.py` → full end-to-end flow
 - `config.py` → central config (connection and model settings)
+- `azure_client.py` → OAuth token + Azure OpenAI clients (`projectId` header)
+- `azure_llm.py` / `azure_embed.py` → Azure chat + embeddings
+- `UAIS_vars.env.example` → copy to `UAIS_vars.env`
+
+---
+
+## Azure mode (UHG gateway — same as your notebook)
+
+1. Copy `UAIS_vars.env.example` → `UAIS_vars.env`
+2. Fill values from your notebook / `UAIS_vars.env`:
+
+```env
+USE_AZURE=true
+MODEL_ENDPOINT=https://api.uhg.com/api/cloud/api-management/ai-gateway/1.0
+API_VERSION=2025-01-01-preview
+PROJECT_ID=a82c5b9d-be3d-487a-858a-96b616963921
+CHAT_MODEL_NAME=gpt-4.1-mini_2025-04-14
+EMBEDDINGS_MODEL_NAME=your-embeddings-deployment
+CLIENT_ID=...
+CLIENT_SECRET=...
+```
+
+3. Install and build embeddings (uses Azure embeddings + `projectId` header):
+
+```bash
+pip install -r requirements.txt
+python embeddings.py
+python main.py
+```
+
+**Important:** If you switch from local → Azure (or change embedding model), delete `chroma_store/` and run `python embeddings.py` again.
+
+In Databricks you can keep using `dbutils.secrets` for `CLIENT_ID` / `CLIENT_SECRET`; locally put them in `UAIS_vars.env` (do not commit).
 
 ---
 
