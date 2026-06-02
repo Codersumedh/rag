@@ -1,16 +1,14 @@
 """Retrieve schema context from ChromaDB for a user question."""
 
 import chromadb
-from chromadb.utils import embedding_functions
 
-from config import CHROMA_DB_DIR, CHROMA_COLLECTION, EMBED_MODEL, TOP_K
+from config import CHROMA_DB_DIR, CHROMA_COLLECTION, TOP_K
+from embed_utils import get_embedding_function
 
 
 def get_collection():
     client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
-    embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=EMBED_MODEL
-    )
+    embed_fn = get_embedding_function()
     return client.get_or_create_collection(
         name=CHROMA_COLLECTION,
         embedding_function=embed_fn,

@@ -86,3 +86,53 @@ Then ask, for example:
 - The local LLM is intentionally small for simplicity and no API usage.
 - For better SQL quality later, you can swap to a larger instruct model in `config.py`.
 
+---
+
+## Fix: SSL error downloading embedding model (corporate network)
+
+If you see:
+
+`SSLError ... huggingface.co ... CERTIFICATE_VERIFY_FAILED`
+
+do one of these:
+
+### Option A — Use local model folder (recommended)
+
+1. On a machine where download works (or home network), run:
+
+```bash
+python download_model.py
+```
+
+2. Copy the folder `models/all-MiniLM-L6-v2` into this project.
+3. In `config.py` set:
+
+```python
+HF_HUB_OFFLINE = True
+```
+
+4. Run again:
+
+```bash
+python embeddings.py
+```
+
+### Option B — Point Python to company CA certificate
+
+In `config.py`:
+
+```python
+SSL_CERT_FILE = r"C:\path\to\your-company-root-ca.pem"
+```
+
+Then retry `python embeddings.py`.
+
+### Option C — Use certifi bundle (sometimes works)
+
+```powershell
+python -m pip install certifi
+$env:SSL_CERT_FILE = python -m certifi
+$env:REQUESTS_CA_BUNDLE = python -m certifi
+python embeddings.py
+```
+

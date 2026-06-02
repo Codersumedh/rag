@@ -16,8 +16,20 @@ CHROMA_COLLECTION = "table_schema"
 # ---------------------------------------------------------------------------
 # Models (all free, run locally, no API keys)
 # ---------------------------------------------------------------------------
-# Fast + small sentence transformer for embeddings.
-EMBED_MODEL = "all-MiniLM-L6-v2"
+# Fast + small sentence transformer for embeddings (Hub id).
+EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+# If Hugging Face download fails (corporate SSL), download the model once on a
+# machine with access, copy the folder here, and set this path.
+# Example folder layout: models/all-MiniLM-L6-v2/config.json, pytorch_model.bin, ...
+LOCAL_EMBED_MODEL_PATH = BASE_DIR / "models" / "all-MiniLM-L6-v2"
+
+# Corporate SSL: point to your company root CA .pem file (optional).
+# Example: r"C:\certs\company-root-ca.pem"
+SSL_CERT_FILE = ""
+
+# Set True only after the model files exist locally (skips Hub download).
+HF_HUB_OFFLINE = False
 
 # Local Hugging Face instruct model used to (1) write SQL and (2) explain results.
 # Qwen2.5-Coder-1.5B is small enough to run on CPU and is good at SQL.

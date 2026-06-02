@@ -10,14 +10,9 @@ with a fast sentence-transformer, and stores it in a persistent ChromaDB.
 
 import yaml
 import chromadb
-from chromadb.utils import embedding_functions
 
-from config import (
-    SCHEMA_YAML_PATH,
-    CHROMA_DB_DIR,
-    CHROMA_COLLECTION,
-    EMBED_MODEL,
-)
+from config import SCHEMA_YAML_PATH, CHROMA_DB_DIR, CHROMA_COLLECTION
+from embed_utils import get_embedding_function
 
 
 def load_schema_chunks():
@@ -78,6 +73,87 @@ def load_schema_chunks():
     dimensions = data.get("dimensions", []) if isinstance(data.get("dimensions"), list) else []
     measures = data.get("measures", []) if isinstance(data.get("measures"), list) else []
 
+    # Format 2b: semantic model with tables[].base_table + nested dimensions/measures
+    for t in table_entries:
+        if not isinstance(t, dict):
+            continue
+        base = t.get("base_table") or {}
+        table_name = base.get("table") or t.get("table") or t.get("name")
+        if not table_name:
+            continue
+        db = base.get("database") or t.get("database", "")
+        schema = base.get("schema") or t.get("schema", "")
+        fqn = ".".join(p for p in (db, schema, table_name) if p)
+        t_dims = t.get("dimensions", []) if isinstance(t.get("dimensions"), list) else []
+        t_measures = t.get("measures", []) if isinstance(t.get("measures"), list) else []
+        if not t_dims and not t_measures:
+            continue
+
+        t_desc = (t.get("description") or "").strip()
+        full_desc = " ".join(p for p in (model_desc, t_desc) if p).strip()
+        chunks.append(
+            {
+                "id": f"table::{table_name}",
+                "text": f"Semantic model {model_name}. Table {fqn}: {full_desc}",
+                "metadata": {"type": "table", "table": table_name, "fqn": fqn},
+            }
+        )
+
+        for d in t_dims:
+            d_name = d.get("name")
+            if not d_name:
+                continue
+            d_type = d.get("data_type", "")
+            d_desc = (d.get("description") or "").strip()
+            d_expr = (d.get("expr") or "").strip()
+            synonyms = ", ".join(d.get("synonyms", [])) if isinstance(d.get("synonyms"), list) else ""
+            text = (
+                f"Table {fqn} dimension {d_name} ({d_type}). "
+                f"description: {d_desc}. expr: {d_expr}. synonyms: {synonyms}"
+            )
+            chunks.append(
+                {
+                    "id": f"dim::{table_name}::{d_name}",
+                    "text": text,
+                    "metadata": {
+                        "type": "dimension",
+                        "table": table_name,
+                        "fqn": fqn,
+                        "column": d_expr or d_name,
+                        "semantic_name": d_name,
+                        "data_type": d_type,
+                    },
+                }
+            )
+
+        for m in t_measures:
+            m_name = m.get("name")
+            if not m_name:
+                continue
+            m_type = m.get("data_type", "")
+            m_desc = (m.get("description") or "").strip()
+            m_expr = (m.get("expr") or "").strip()
+            synonyms = ", ".join(m.get("synonyms", [])) if isinstance(m.get("synonyms"), list) else ""
+            text = (
+                f"Table {fqn} measure {m_name} ({m_type}). "
+                f"description: {m_desc}. expr: {m_expr}. synonyms: {synonyms}"
+            )
+            chunks.append(
+                {
+                    "id": f"measure::{table_name}::{m_name}",
+                    "text": text,
+                    "metadata": {
+                        "type": "measure",
+                        "table": table_name,
+                        "fqn": fqn,
+                        "column": m_expr or m_name,
+                        "semantic_name": m_name,
+                        "data_type": m_type,
+                    },
+                }
+            )
+
+    # Format 2a: root-level dimensions/measures (legacy)
     if table_entries and (dimensions or measures):
         for t in table_entries:
             table_name = t.get("table") or t.get("name")
@@ -165,9 +241,7 @@ def build_store():
     except Exception:
         pass
 
-    embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=EMBED_MODEL
-    )
+    embed_fn = get_embedding_function()
     collection = client.create_collection(
         name=CHROMA_COLLECTION,
         embedding_function=embed_fn,
