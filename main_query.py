@@ -4,8 +4,11 @@ import warnings
 from dotenv import load_dotenv
 import openai
 from langchain_openai import AzureOpenAIEmbeddings
-from langchain.vectorstores import Chroma
+from langchain_chroma import Chroma
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers import EnsembleRetriever
 from tenacity import retry, stop_after_attempt, wait_random_exponential
+import httpx
 
 warnings.filterwarnings("ignore")
 
@@ -20,17 +23,14 @@ PROJECT_ID                 = os.environ["PROJECT_ID"]
 CLIENT_ID                  = os.environ["CLIENT_ID"]
 CLIENT_SECRET              = os.environ["CLIENT_SECRET"]
 
-PERSIST_DIR = "/tmp/vector_embeddings_YAML"
-TOP_K       = 5   # number of chunks to retrieve
+PERSIST_DIR = "./vector_embeddings_YAML"
+TOP_K       = 5
 
 # ── OAuth2 token ──────────────────────────────────────────────────────────────
-import httpx
-
 async def get_token():
     auth       = "https://api.uhg.com/oauth2/token"
     scope      = "https://api.uhg.com/.default"
     grant_type = "client_credentials"
-
     async with httpx.AsyncClient() as client:
         body = {
             "grant_type":    grant_type,
@@ -44,15 +44,13 @@ async def get_token():
 
 token = asyncio.run(get_token())
 
-# ── Clients (same pattern as notebook cells 9 & 12) ───────────────────────────
+# ── Clients ───────────────────────────────────────────────────────────────────
 chat_client = openai.AzureOpenAI(
     azure_endpoint=AZURE_OPENAI_ENDPOINT,
     api_version=OPENAI_API_VERSION,
     azure_deployment=CHAT_DEPLOYMENT_NAME,
     azure_ad_token=token,
-    default_headers={
-        "projectId": PROJECT_ID
-    }
+    default_headers={"projectId": PROJECT_ID}
 )
 
 embeddings = AzureOpenAIEmbeddings(
@@ -60,12 +58,10 @@ embeddings = AzureOpenAIEmbeddings(
     azure_deployment=EMBEDDINGS_DEPLOYMENT_NAME,
     openai_api_version=OPENAI_API_VERSION,
     azure_ad_token=token,
-    default_headers={
-        "projectId": PROJECT_ID
-    }
+    default_headers={"projectId": PROJECT_ID}
 )
 
-# ── Load persisted ChromaDB ───────────────────────────────────────────────────
+# ── Load ChromaDB ─────────────────────────────────────────────────────────────
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 vectordb = Chroma(
@@ -74,13 +70,40 @@ vectordb = Chroma(
 )
 print(f"[main] Loaded ChromaDB — {vectordb._collection.count()} vectors")
 
-# ── Semantic retrieval with cosine similarity (Method 1 from notebook cell 27) 
-def semantic_retrieval(query: str, top_k: int = TOP_K):
+# ── Load all docs for BM25 (keyword retriever) ───────────────────────────────
+# BM25 does exact keyword + synonym matching which fixes the problem you saw —
+# "treatment regimen" will now directly keyword-match against synonyms in the chunk text
+all_docs = vectordb.get()   # returns dict with 'documents' and 'metadatas'
+
+from langchain_core.documents import Document as LCDocument
+
+bm25_docs = [
+    LCDocument(page_content=text, metadata=meta)
+    for text, meta in zip(all_docs["documents"], all_docs["metadatas"])
+]
+
+bm25_retriever = BM25Retriever.from_documents(bm25_docs)
+bm25_retriever.k = TOP_K
+
+# ── Semantic retriever (cosine similarity via Chroma) ─────────────────────────
+semantic_retriever = vectordb.as_retriever(search_kwargs={"k": TOP_K})
+
+# ── Hybrid retriever: BM25 (0.4) + Semantic (0.6) ────────────────────────────
+# Weight semantic slightly higher but BM25 ensures keyword/synonym hits always surface
+hybrid_retriever = EnsembleRetriever(
+    retrievers=[bm25_retriever, semantic_retriever],
+    weights=[0.4, 0.6],
+)
+
+# ── Hybrid retrieval with deduplication ───────────────────────────────────────
+def hybrid_retrieval(query: str, top_k: int = TOP_K):
     """
-    Fetch top_k*2 candidates (cosine similarity is the default distance for
-    Chroma with OpenAI embeddings), then de-duplicate on page_content.
+    Method 2: BM25 + Semantic hybrid (EnsembleRetriever).
+    BM25 catches exact keyword & synonym matches (e.g. 'treatment regimen').
+    Semantic catches conceptual similarity.
+    Results are RRF-fused then deduplicated.
     """
-    results       = vectordb.similarity_search(query, k=top_k * 2)
+    results        = hybrid_retriever.invoke(query)
     unique_results = []
     seen_contents  = set()
 
@@ -93,35 +116,30 @@ def semantic_retrieval(query: str, top_k: int = TOP_K):
 
     return unique_results
 
-# ── Build context string from retrieved chunks ────────────────────────────────
+# ── Build context ─────────────────────────────────────────────────────────────
 def build_context(docs) -> str:
     parts = []
     for i, doc in enumerate(docs, 1):
         parts.append(f"--- Chunk {i} ---\n{doc.page_content}")
     return "\n\n".join(parts)
 
-# ── LLM call for SQL generation (same pattern as notebook cell 12) ────────────
+# ── LLM call ──────────────────────────────────────────────────────────────────
 @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(3))
 def get_response(prompt: str) -> str:
     # this function retrieves the model's response, and returns the content of the generated message
     response = chat_client.chat.completions.create(
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
+        messages=[{"role": "user", "content": prompt}],
         model=CHAT_DEPLOYMENT_NAME,
     )
     return response.choices[0].message.content
 
-# ── SQL-generation prompt ─────────────────────────────────────────────────────
+# ── SQL prompt ────────────────────────────────────────────────────────────────
 def build_sql_prompt(user_query: str, context: str) -> str:
     return f"""You are a SQL expert. A user has asked a question in natural language.
 Use ONLY the schema information provided in the context below to write a correct SQL query.
 Do not invent column names — use only the 'Column expression' values from the context.
 
-=== SCHEMA CONTEXT (retrieved from semantic model) ===
+=== SCHEMA CONTEXT (retrieved from semantic model via hybrid search) ===
 {context}
 
 === USER QUESTION ===
@@ -142,21 +160,18 @@ def query_to_sql(user_query: str, verbose: bool = True) -> str:
     if verbose:
         print(f"\n[query] User query: {user_query}")
 
-    # Step 1 — cosine similarity retrieval
-    retrieved_docs = semantic_retrieval(user_query, top_k=TOP_K)
+    # Hybrid retrieval (BM25 + Semantic)
+    retrieved_docs = hybrid_retrieval(user_query, top_k=TOP_K)
 
     if verbose:
-        print(f"[query] Retrieved {len(retrieved_docs)} chunks:")
+        print(f"[query] Retrieved {len(retrieved_docs)} chunks (hybrid BM25 + semantic):")
         for i, doc in enumerate(retrieved_docs, 1):
             field = doc.metadata.get("field_name", "?")
             ftype = doc.metadata.get("field_type", "?")
             print(f"  {i}. [{ftype}] {field}")
 
-    # Step 2 — build context + prompt
     context    = build_context(retrieved_docs)
     prompt     = build_sql_prompt(user_query, context)
-
-    # Step 3 — send to LLM
     sql_output = get_response(prompt)
 
     if verbose:
@@ -168,11 +183,10 @@ def query_to_sql(user_query: str, verbose: bool = True) -> str:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Example queries — replace or extend as needed
     test_queries = [
-        "Show me total authorizations grouped by primary cancer type for the last 3 months",
-        "What are the distinct ICD diagnosis codes used in UHC medical oncology?",
-        "List patients with secondary cancer descriptions along with their treatment regimen",
+        "List patients with secondary cancer descriptions and treatment regimen description",
+        "Show me total authorizations grouped by primary cancer type",
+        "What are the distinct ICD diagnosis codes used?",
     ]
 
     for q in test_queries:
