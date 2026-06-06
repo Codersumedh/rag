@@ -134,21 +134,28 @@ def get_response(prompt: str) -> str:
     return response.choices[0].message.content
 
 # ── SQL prompt ────────────────────────────────────────────────────────────────
-def build_sql_prompt(user_query: str, context: str) -> str:
+def build_sql_prompt(user_query: str, schema_context: str, chat_context: str = "") -> str:
+    chat_section = ""
+    if chat_context:
+        chat_section = f"""
+=== PREVIOUS QUESTIONS IN THIS CHAT (for context only) ===
+{chat_context}
+"""
     return f"""You are a SQL expert. A user has asked a question in natural language.
 Use ONLY the schema information provided in the context below to write a correct SQL query.
 Do not invent column names — use only the 'Column expression' values from the context.
-
+{chat_section}
 === SCHEMA CONTEXT (retrieved from semantic model via hybrid search) ===
-{context}
+{schema_context}
 
-=== USER QUESTION ===
+=== CURRENT USER QUESTION ===
 {user_query}
 
 === INSTRUCTIONS ===
 - Write a clean, executable SQL SELECT statement.
 - Use fully qualified table names (database.schema.table) from the context.
 - Prefer the exact column expressions listed in the context.
+- Use previous questions only to understand intent, not to copy their SQL blindly.
 - Add meaningful aliases for readability.
 - Do not add any explanation — return SQL only.
 
@@ -156,7 +163,7 @@ SQL:
 """
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
-def query_to_sql(user_query: str, verbose: bool = True) -> str:
+def query_to_sql(user_query: str, verbose: bool = True, context: str = "") -> str:
     if verbose:
         print(f"\n[query] User query: {user_query}")
 
@@ -170,9 +177,9 @@ def query_to_sql(user_query: str, verbose: bool = True) -> str:
             ftype = doc.metadata.get("field_type", "?")
             print(f"  {i}. [{ftype}] {field}")
 
-    context    = build_context(retrieved_docs)
-    prompt     = build_sql_prompt(user_query, context)
-    sql_output = get_response(prompt)
+    schema_context = build_context(retrieved_docs)
+    prompt         = build_sql_prompt(user_query, schema_context, chat_context=context)
+    sql_output     = get_response(prompt)
 
     if verbose:
         print("\n[query] Generated SQL:\n")
